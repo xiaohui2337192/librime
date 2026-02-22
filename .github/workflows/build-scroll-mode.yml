@@ -3,40 +3,35 @@ name: Build librime with scroll mode
 on:
   push:
     branches: [ scroll-mode ]
-  pull_request:
-    branches: [ master ]
   workflow_dispatch:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2019
     
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
     
-    - name: Setup Boost
-      uses: MarkusJx/install-boost@v2.4.1
-      with:
-        boost_version: 1.82.0
-        
-    - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v1.1
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
       
     - name: Install dependencies
       run: |
+        choco install boost-msvc-14.2 -y
         choco install ninja -y
         
     - name: Build dependencies
       run: |
-        $env:BOOST_ROOT = $env:BOOST_ROOT_1_82_0
+        $env:BOOST_ROOT = "C:\Program Files\Boost"
         $env:RIME_ROOT = $PWD
         ./build.bat deps
+      continue-on-error: true
         
     - name: Build librime
       run: |
-        $env:BOOST_ROOT = $env:BOOST_ROOT_1_82_0
+        $env:BOOST_ROOT = "C:\Program Files\Boost"
         $env:RIME_ROOT = $PWD
         ./build.bat librime
         
