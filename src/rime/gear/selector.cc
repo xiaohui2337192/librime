@@ -23,6 +23,10 @@ static Selector::ActionDef selector_actions[] = {
     {"next_page", &Selector::NextPage},
     {"home", &Selector::Home},
     {"end", &Selector::End},
+    {"scroll_down", &Selector::ScrollDown},
+    {"scroll_up", &Selector::ScrollUp},
+    {"scroll_left", &Selector::ScrollLeft},
+    {"scroll_right", &Selector::ScrollRight},
     Selector::kActionNoop,
 };
 
@@ -97,12 +101,33 @@ Selector::Selector(const Ticket& ticket)
     keymap.Bind({XK_End, 0}, &Selector::End);
     keymap.Bind({XK_KP_End, 0}, &Selector::End);
   }
+  {
+    // 卷轴模式：5列4行，共20个候选词
+    auto& keymap = get_keymap(ScrollMode);
+    keymap.Bind({XK_Down, 0}, &Selector::ScrollDown);
+    keymap.Bind({XK_KP_Down, 0}, &Selector::ScrollDown);
+    keymap.Bind({XK_Up, 0}, &Selector::ScrollUp);
+    keymap.Bind({XK_KP_Up, 0}, &Selector::ScrollUp);
+    keymap.Bind({XK_Left, 0}, &Selector::ScrollLeft);
+    keymap.Bind({XK_KP_Left, 0}, &Selector::ScrollLeft);
+    keymap.Bind({XK_Right, 0}, &Selector::ScrollRight);
+    keymap.Bind({XK_KP_Right, 0}, &Selector::ScrollRight);
+    keymap.Bind({XK_Prior, 0}, &Selector::PreviousPage);
+    keymap.Bind({XK_KP_Prior, 0}, &Selector::PreviousPage);
+    keymap.Bind({XK_Next, 0}, &Selector::NextPage);
+    keymap.Bind({XK_KP_Next, 0}, &Selector::NextPage);
+    keymap.Bind({XK_Home, 0}, &Selector::Home);
+    keymap.Bind({XK_KP_Home, 0}, &Selector::Home);
+    keymap.Bind({XK_End, 0}, &Selector::End);
+    keymap.Bind({XK_KP_End, 0}, &Selector::End);
+  }
 
   Config* config = engine_->schema()->config();
   LoadConfig(config, "selector", Horizontal | Stacked);
   LoadConfig(config, "selector/linear", Horizontal | Linear);
   LoadConfig(config, "selector/vertical", Vertical | Stacked);
   LoadConfig(config, "selector/vertical/linear", Vertical | Linear);
+  LoadConfig(config, "selector/scroll", ScrollMode);
 }
 
 inline static bool is_vertical_text(Context* ctx) {
@@ -115,6 +140,10 @@ inline static bool is_linear_layout(Context* ctx) {
          ctx->get_option("_horizontal");
 }
 
+inline static bool is_scroll_mode(Context* ctx) {
+  return ctx->get_option("_scroll_mode");
+}
+
 ProcessResult Selector::ProcessKeyEvent(const KeyEvent& key_event) {
   if (key_event.release() || key_event.alt() || key_event.super())
     return kNoop;
@@ -125,6 +154,15 @@ ProcessResult Selector::ProcessKeyEvent(const KeyEvent& key_event) {
   if (!current_segment.menu || current_segment.HasTag("raw"))
     return kNoop;
 
+  // 检测是否启用卷轴模式
+  if (is_scroll_mode(ctx)) {
+    auto result = KeyBindingProcessor::ProcessKeyEvent(
+        key_event, ctx, ScrollMode, FallbackOptions::None);
+    if (result != kNoop) {
+      return result;
+    }
+  }
+  
   TextOrientation text_orientation =
       is_vertical_text(ctx) ? Vertical : Horizontal;
   CandidateListLayout candidate_list_layout =
@@ -262,6 +300,140 @@ bool Selector::SelectCandidateAt(Context* ctx, int index) {
   int selected_index = comp.back().selected_index;
   int page_start = (selected_index / page_size) * page_size;
   return ctx->Select(page_start + index);
+}
+
+// 卷轴模式实现
+// 假设每页显示20个候选词，按5列×4行排列
+static const int kScrollColumns = 5;
+static const int kScrollRows = 4;
+
+bool Selector::ScrollDown(Context* ctx) {
+  Composition& comp = ctx->composition();
+  if (comp.empty() || !comp.back().menu)
+    return false;
+  
+  int page_size = engine_->schema()->page_size();
+  int selected_index = comp.back().selected_index;
+  int candidate_count = comp.back().menu->Prepare(selected_index + kScrollColumns + 1);
+  
+  // 计算当前行列
+  int current_row = selected_index / kScrollColumns;
+  int current_col = selected_index % kScrollColumns;
+  int current_page_start = (selected_index / page_size) * page_size;
+  int current_page_end = min(current_page_start + page_size, candidate_count);
+  
+  // 如果不是展开状态（单行显示），按↓展开显示多行
+  if (!ctx->get_option("_scroll_expanded")) {
+    ctx->set_option("_scroll_expanded", true);
+    // 跳到第二行
+    int new_index = selected_index + kScrollColumns;
+    if (new_index < current_page_end) {
+      ctx->Highlight(new_index);
+      comp.back().tags.insert("paging");
+      return true;
+    }
+  }
+  
+  // 已经在展开状态，向下移动一行
+  int new_index = selected_index + kScrollColumns;
+  int new_row = new_index / kScrollColumns;
+  
+  // 检查是否超出当前页
+  if (new_index >= current_page_end) {
+    // 翻到下一页
+    int next_page_start = current_page_start + page_size;
+    if (next_page_start < candidate_count) {
+      ctx->Highlight(next_page_start + current_col);
+      comp.back().tags.insert("paging");
+      return true;
+    }
+    return true;  // 已在最后一页，消费按键但不移动
+  }
+  
+  ctx->Highlight(new_index);
+  comp.back().tags.insert("paging");
+  return true;
+}
+
+bool Selector::ScrollUp(Context* ctx) {
+  Composition& comp = ctx->composition();
+  if (comp.empty())
+    return false;
+  
+  int selected_index = comp.back().selected_index;
+  
+  // 如果不是展开状态，不处理
+  if (!ctx->get_option("_scroll_expanded")) {
+    return false;
+  }
+  
+  // 计算当前行列
+  int current_row = selected_index / kScrollColumns;
+  
+  // 如果在第一行，收起展开状态
+  if (current_row == 0) {
+    ctx->set_option("_scroll_expanded", false);
+    return true;
+  }
+  
+  // 向上移动一行
+  int new_index = selected_index - kScrollColumns;
+  if (new_index >= 0) {
+    ctx->Highlight(new_index);
+    comp.back().tags.insert("paging");
+    return true;
+  }
+  
+  return false;
+}
+
+bool Selector::ScrollLeft(Context* ctx) {
+  Composition& comp = ctx->composition();
+  if (comp.empty())
+    return false;
+  
+  // 只在展开状态下处理
+  if (!ctx->get_option("_scroll_expanded")) {
+    return false;
+  }
+  
+  int selected_index = comp.back().selected_index;
+  int current_col = selected_index % kScrollColumns;
+  
+  // 如果在第一列，不处理（让导航器处理）
+  if (current_col == 0) {
+    return false;
+  }
+  
+  // 向左移动
+  ctx->Highlight(selected_index - 1);
+  comp.back().tags.insert("paging");
+  return true;
+}
+
+bool Selector::ScrollRight(Context* ctx) {
+  Composition& comp = ctx->composition();
+  if (comp.empty() || !comp.back().menu)
+    return false;
+  
+  // 只在展开状态下处理
+  if (!ctx->get_option("_scroll_expanded")) {
+    return false;
+  }
+  
+  int selected_index = comp.back().selected_index;
+  int current_col = selected_index % kScrollColumns;
+  int candidate_count = comp.back().menu->Prepare(selected_index + 2);
+  
+  // 如果在最后一列或超出候选词范围，不处理
+  if (current_col >= kScrollColumns - 1 || selected_index + 1 >= candidate_count) {
+    return false;
+  }
+  
+  // 向右移动
+  ctx->Highlight(selected_index + 1);
+  comp.back().tags.insert("paging");
+  return true;
 }
 
 }  // namespace rime

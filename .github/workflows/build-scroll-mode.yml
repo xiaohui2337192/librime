@@ -1,0 +1,50 @@
+name: Build librime with scroll mode
+
+on:
+  push:
+    branches: [ scroll-mode ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    
+    - name: Setup Boost
+      uses: MarkusJx/install-boost@v2.4.1
+      with:
+        boost_version: 1.82.0
+        
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v1.1
+      
+    - name: Install dependencies
+      run: |
+        choco install ninja -y
+        
+    - name: Build dependencies
+      run: |
+        $env:BOOST_ROOT = $env:BOOST_ROOT_1_82_0
+        $env:RIME_ROOT = $PWD
+        ./build.bat deps
+        
+    - name: Build librime
+      run: |
+        $env:BOOST_ROOT = $env:BOOST_ROOT_1_82_0
+        $env:RIME_ROOT = $PWD
+        ./build.bat librime
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: librime-scroll-mode
+        path: |
+          build/lib/Release/*.dll
+          build/lib/Release/*.lib
+          build/bin/Release/*.exe

@@ -23,6 +23,7 @@ class Selector : public Processor, public KeyBindingProcessor<Selector, 4> {
   enum CandidateListLayout {
     Stacked = 0,
     Linear = 2,
+    ScrollMode = 4,
   };
 
   explicit Selector(const Ticket& ticket);
@@ -35,6 +36,10 @@ class Selector : public Processor, public KeyBindingProcessor<Selector, 4> {
   Handler NextPage;
   Handler Home;
   Handler End;
+  Handler ScrollDown;
+  Handler ScrollUp;
+  Handler ScrollLeft;
+  Handler ScrollRight;
 
   bool SelectCandidateAt(Context* ctx, int index);
 };
