@@ -27,9 +27,9 @@ jobs:
     - name: Download Boost
       if: steps.cache-boost.outputs.cache-hit != 'true'
       run: |
-        $url = "https://boostorg.jfrog.io/artifactory/main/release/1.84.0/source/boost_1_84_0.7z"
-        Invoke-WebRequest -Uri $url -OutFile boost.7z
-        7z x boost.7z -o${{ github.workspace }}/boost -y
+        $url = "https://archives.boost.io/release/1.84.0/source/boost_1_84_0.zip"
+        Invoke-WebRequest -Uri $url -OutFile boost.zip
+        7z x boost.zip -o${{ github.workspace }}/boost -y
         
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
@@ -38,6 +38,7 @@ jobs:
       shell: cmd
       run: |
         set BOOST_ROOT=${{ github.workspace }}\boost\boost_1_84_0
+        echo BOOST_ROOT=%BOOST_ROOT%
         set RIME_ROOT=%CD%
         mkdir build
         cd build
