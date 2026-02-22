@@ -5,41 +5,47 @@ on:
     branches: [ scroll-mode ]
   workflow_dispatch:
 
+env:
+  BOOST_VERSION: 1.84.0
+
 jobs:
-  build-windows:
-    runs-on: windows-2019
+  build:
+    runs-on: windows-2022
     
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
-    
+        
+    - name: Cache Boost
+      uses: actions/cache@v4
+      id: cache-boost
+      with:
+        path: ${{ github.workspace }}/boost
+        key: ${{ runner.os }}-boost-${{ env.BOOST_VERSION }}
+        
+    - name: Download Boost
+      if: steps.cache-boost.outputs.cache-hit != 'true'
+      run: |
+        $url = "https://boostorg.jfrog.io/artifactory/main/release/1.84.0/source/boost_1_84_0.7z"
+        Invoke-WebRequest -Uri $url -OutFile boost.7z
+        7z x boost.7z -o${{ github.workspace }}/boost -y
+        
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
       
-    - name: Install dependencies
-      run: |
-        choco install boost-msvc-14.2 -y
-        choco install ninja -y
-        
-    - name: Build dependencies
-      run: |
-        $env:BOOST_ROOT = "C:\Program Files\Boost"
-        $env:RIME_ROOT = $PWD
-        ./build.bat deps
-      continue-on-error: true
-        
     - name: Build librime
+      shell: cmd
       run: |
-        $env:BOOST_ROOT = "C:\Program Files\Boost"
-        $env:RIME_ROOT = $PWD
-        ./build.bat librime
+        set BOOST_ROOT=${{ github.workspace }}\boost\boost_1_84_0
+        set RIME_ROOT=%CD%
+        mkdir build
+        cd build
+        cmake .. -G "Visual Studio 17 2022" -A x64 -DBUILD_TEST=OFF -DBUILD_STATIC=ON
+        msbuild rime.sln /p:Configuration=Release /m /v:quiet
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: librime-scroll-mode
-        path: |
-          build/lib/Release/*.dll
-          build/lib/Release/*.lib
-          build/bin/Release/*.exe
+        path: build/lib/Release/rime.dll
