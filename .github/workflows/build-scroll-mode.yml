@@ -39,6 +39,8 @@ jobs:
       run: |
         set BOOST_ROOT=${{ github.workspace }}\boost\boost_1_84_0
         set RIME_ROOT=%CD%
+        set CMAKE_GENERATOR="Visual Studio 17 2022"
+        set ARCH=x64
         call build.bat deps
         call build.bat librime
         
